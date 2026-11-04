@@ -1,0 +1,142 @@
+@inject AppState State
+
+<main class="wrap">
+    <header class="top">
+        <h1>Ask my portfolio</h1>
+        <p class="lede">Questions are answered only from the READMEs of ten of Hamza's .NET projects and one short about page. Every answer cites the passages it came from. If the docs do not cover it, the bot says so.</p>
+        <p class="notice" role="note"><strong>The model here is a stand-in.</strong> It copies the sentences that best match your question and cites them. It does not paraphrase or reason, and the search matches words, not meaning. It keeps no memory between questions.</p>
+    </header>
+
+    @if (State.LoadError is not null)
+    {
+        <p class="error" role="alert">@State.LoadError</p>
+    }
+    else if (!ready)
+    {
+        <p class="muted" role="status">Loading the documents&hellip;</p>
+    }
+    else
+    {
+        <form class="ask" @onsubmit="Submit" @onsubmit:preventDefault>
+            <label for="q" class="sr">Your question</label>
+            <input id="q" type="text" maxlength="500" placeholder="Ask about a project or about Hamza" @bind="question" @bind:event="oninput" autocomplete="off" />
+            <button type="submit" disabled="@(busy || string.IsNullOrWhiteSpace(question))">Ask</button>
+        </form>
+
+        <div class="samples" aria-label="Sample questions">
+            @foreach (var s in Samples)
+            {
+                <button type="button" class="chip" @onclick="() => Use(s)">@s</button>
+            }
+        </div>
+
+        <section class="turns" aria-live="polite">
+            @foreach (var t in turns)
+            {
+                <article class="turn">
+                    <p class="q">@t.Question</p>
+                    <div class="a @Css(t.Answer.Status)">
+                        <p>@t.Answer.Text</p>
+                        @if (t.Answer.Citations.Count > 0)
+                        {
+                            <div class="sources">
+                                <span class="muted">Sources:</span>
+                                @foreach (var c in t.Answer.Citations)
+                                {
+                                    <button type="button" class="src @(t.Open == c.ChunkId ? "on" : "")" @onclick="() => Toggle(t, c.ChunkId)" aria-expanded="@(t.Open == c.ChunkId)">@c.Source<span class="h"> / @c.Heading</span></button>
+                                }
+                            </div>
+                            @if (t.Open is not null && t.Answer.Citations.FirstOrDefault(c => c.ChunkId == t.Open) is { } open)
+                            {
+                                <blockquote>@FullText(open.ChunkId)</blockquote>
+                            }
+                        }
+                        @if (t.Answer.Reason is not null)
+                        {
+                            <p class="muted small">@t.Answer.Reason</p>
+                        }
+                        <details class="why">
+                            <summary>What was retrieved</summary>
+                            <ol>
+                                @foreach (var h in t.Answer.Considered)
+                                {
+                                    <li><code>@h.Chunk.Id</code> <span class="muted">@h.Chunk.Heading</span> <span class="score">@h.Score.ToString("0.00")</span></li>
+                                }
+                                @if (t.Answer.Considered.Count == 0)
+                                {
+                                    <li class="muted">Nothing matched.</li>
+                                }
+                            </ol>
+                        </details>
+                    </div>
+                </article>
+            }
+        </section>
+    }
+
+    <footer class="foot">
+        <a href="https://github.com/hamzamehmood46/portfolio-ask-dotnet">Source on GitHub</a>
+        <span class="muted"> / Search and model are both local stand-ins; nothing leaves your browser.</span>
+    </footer>
+</main>
+
+@code {
+    private static readonly string[] Samples =
+    [
+        "How does the SLA clock pause?",
+        "What happens when two people pick the same seat?",
+        "What is the outbox pattern?",
+        "Where did Hamza study?",
+        "What is Hamza's favorite food?",
+    ];
+
+    private sealed class Turn
+    {
+        public required string Question { get; init; }
+        public required Answer Answer { get; init; }
+        public string? Open { get; set; }
+    }
+
+    private readonly List<Turn> turns = [];
+    private string question = "";
+    private bool ready;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await State.EnsureLoadedAsync();
+        ready = State.Assistant is not null;
+    }
+
+    private void Use(string sample)
+    {
+        question = sample;
+        _ = Submit();
+    }
+
+    private async Task Submit()
+    {
+        if (busy || State.Assistant is null || string.IsNullOrWhiteSpace(question))
+        {
+            return;
+        }
+
+        busy = true;
+        var asked = question.Trim();
+        question = "";
+        var answer = await State.Assistant.AskAsync(asked);
+        turns.Insert(0, new Turn { Question = asked, Answer = answer, Open = answer.Citations.FirstOrDefault()?.ChunkId });
+        busy = false;
+    }
+
+    private static void Toggle(Turn t, string id) => t.Open = t.Open == id ? null : id;
+
+    private string FullText(string chunkId) => State.Index?.Find(chunkId)?.Text ?? "";
+
+    private static string Css(AnswerStatus s) => s switch
+    {
+        AnswerStatus.Answered => "ok",
+        AnswerStatus.NoAnswer => "none",
+        _ => "bad",
+    };
+}
