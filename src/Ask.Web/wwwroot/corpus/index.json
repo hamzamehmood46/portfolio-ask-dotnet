@@ -1,0 +1,13 @@
+[
+  "about-hamza.md",
+  "claims-api.md",
+  "hold-my-seat.md",
+  "orderflow.md",
+  "outbox-pattern.md",
+  "resilience-toolkit.md",
+  "stripe-payments.md",
+  "triage-support-inbox.md",
+  "twilio-messaging-console.md",
+  "webhook-relay.md",
+  "xml-mapping-service.md"
+]
