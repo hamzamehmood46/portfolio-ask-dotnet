@@ -1,11 +1,25 @@
 @inject AppState State
+@inject IJSRuntime Js
 
-<main class="wrap">
+<main class="app">
     <header class="top">
-        <h1>Ask my portfolio</h1>
-        <p class="lede">Questions are answered only from the READMEs of ten of Hamza's .NET projects and one short about page. Every answer cites the passages it came from. If the docs do not cover it, the bot says so.</p>
-        <p class="notice" role="note"><strong>The model here is a stand-in.</strong> It copies the sentences that best match your question and cites them. It does not paraphrase or reason, and the search matches words, not meaning. It keeps no memory between questions.</p>
+        <div class="brand">
+            <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 5h16v11H11l-5 4v-4H4z" /></svg></span>
+            <div>
+                <h1>Ask my portfolio</h1>
+                <p class="sub">Answers come only from Hamza's project READMEs, with sources.</p>
+            </div>
+        </div>
+        <div class="top-actions">
+            <span class="pill" title="The search and the model are simple stand-ins">Stand-in model</span>
+            <button type="button" class="ghost" @onclick="Clear" disabled="@(turns.Count == 0)">Clear</button>
+        </div>
     </header>
+
+    <details class="about">
+        <summary>How this works, and what it can't do</summary>
+        <p>The model here is a stand-in. It copies the sentences that best match your question and cites them. It does not paraphrase or reason, the search matches words rather than meaning, and it keeps no memory between questions. If the docs do not cover a question, it says so and cites nothing.</p>
+    </details>
 
     @if (State.LoadError is not null)
     {
@@ -13,71 +27,81 @@
     }
     else if (!ready)
     {
-        <p class="muted" role="status">Loading the documents&hellip;</p>
+        <div class="log"><p class="muted" role="status">Loading the documents&hellip;</p></div>
     }
     else
     {
-        <form class="ask" @onsubmit="Submit" @onsubmit:preventDefault>
-            <label for="q" class="sr">Your question</label>
-            <input id="q" type="text" maxlength="500" placeholder="Ask about a project or about Hamza" @bind="question" @bind:event="oninput" autocomplete="off" />
-            <button type="submit" disabled="@(busy || string.IsNullOrWhiteSpace(question))">Ask</button>
-        </form>
-
-        <div class="samples" aria-label="Sample questions">
-            @foreach (var s in Samples)
+        <section class="log" aria-live="polite" aria-label="Conversation">
+            @if (turns.Count == 0)
             {
-                <button type="button" class="chip" @onclick="() => Use(s)">@s</button>
+                <div class="empty">
+                    <h2>What would you like to know?</h2>
+                    <p>Pick a question below or type your own. One of them is something the docs do not cover, on purpose.</p>
+                </div>
             }
-        </div>
 
-        <section class="turns" aria-live="polite">
             @foreach (var t in turns)
             {
-                <article class="turn">
-                    <p class="q">@t.Question</p>
-                    <div class="a @Css(t.Answer.Status)">
-                        <p>@t.Answer.Text</p>
-                        @if (t.Answer.Citations.Count > 0)
-                        {
-                            <div class="sources">
-                                <span class="muted">Sources:</span>
-                                @foreach (var c in t.Answer.Citations)
-                                {
-                                    <button type="button" class="src @(t.Open == c.ChunkId ? "on" : "")" @onclick="() => Toggle(t, c.ChunkId)" aria-expanded="@(t.Open == c.ChunkId)">@c.Source<span class="h"> / @c.Heading</span></button>
-                                }
-                            </div>
-                            @if (t.Open is not null && t.Answer.Citations.FirstOrDefault(c => c.ChunkId == t.Open) is { } open)
+                <div class="msg user"><p>@t.Question</p></div>
+                <article class="msg bot @Css(t.Answer.Status)">
+                    <p class="answer">@t.Answer.Text</p>
+                    @if (t.Answer.Citations.Count > 0)
+                    {
+                        <div class="sources" role="group" aria-label="Sources">
+                            @foreach (var c in t.Answer.Citations)
                             {
-                                <blockquote>@FullText(open.ChunkId)</blockquote>
+                                <button type="button" class="src @(t.Open == c.ChunkId ? "on" : "")" @onclick="() => Toggle(t, c.ChunkId)" aria-expanded="@(t.Open == c.ChunkId)">
+                                    <span class="doc">@c.Source</span><span class="h">@Short(c.Heading)</span>
+                                </button>
                             }
-                        }
-                        @if (t.Answer.Reason is not null)
+                        </div>
+                        @if (t.Open is not null && t.Answer.Citations.Any(c => c.ChunkId == t.Open))
                         {
-                            <p class="muted small">@t.Answer.Reason</p>
+                            <blockquote>@FullText(t.Open)</blockquote>
                         }
-                        <details class="why">
-                            <summary>What was retrieved</summary>
-                            <ol>
-                                @foreach (var h in t.Answer.Considered)
-                                {
-                                    <li><code>@h.Chunk.Id</code> <span class="muted">@h.Chunk.Heading</span> <span class="score">@h.Score.ToString("0.00")</span></li>
-                                }
-                                @if (t.Answer.Considered.Count == 0)
-                                {
-                                    <li class="muted">Nothing matched.</li>
-                                }
-                            </ol>
-                        </details>
-                    </div>
+                    }
+                    @if (t.Answer.Reason is not null)
+                    {
+                        <p class="reason">@t.Answer.Reason</p>
+                    }
+                    <details class="why">
+                        <summary>What was retrieved</summary>
+                        <ol>
+                            @foreach (var h in t.Answer.Considered)
+                            {
+                                <li>
+                                    <span class="rid"><code>@h.Chunk.Id</code> <span class="muted">@Short(h.Chunk.Heading)</span></span>
+                                    <span class="meter" aria-hidden="true"><i style="width:@(Math.Min(100, (int)(h.Score * 100)))%"></i></span>
+                                    <span class="score">@h.Score.ToString("0.00")</span>
+                                </li>
+                            }
+                            @if (t.Answer.Considered.Count == 0)
+                            {
+                                <li class="muted">Nothing matched.</li>
+                            }
+                        </ol>
+                    </details>
                 </article>
             }
         </section>
-    }
 
-    <footer class="foot">
-        <a href="https://github.com/hamzamehmood46/portfolio-ask-dotnet">Source on GitHub</a>
-        <span class="muted"> / Search and model are both local stand-ins; nothing leaves your browser.</span>
-    </footer>
+        <div class="dock">
+            <div class="samples" role="group" aria-label="Sample questions">
+                @foreach (var s in Samples)
+                {
+                    <button type="button" class="chip" @onclick="() => Use(s)">@s</button>
+                }
+            </div>
+            <form class="ask" @onsubmit="Submit" @onsubmit:preventDefault>
+                <label for="q" class="sr">Your question</label>
+                <input id="q" type="text" maxlength="500" placeholder="Ask about a project or about Hamza" @bind="question" @bind:event="oninput" autocomplete="off" />
+                <button type="submit" disabled="@(busy || string.IsNullOrWhiteSpace(question))" aria-label="Ask">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                </button>
+            </form>
+            <p class="foot"><a href="https://github.com/hamzamehmood46/portfolio-ask-dotnet" target="_blank" rel="noopener">Source on GitHub</a> &middot; nothing leaves your browser</p>
+        </div>
+    }
 </main>
 
 @code {
@@ -101,6 +125,7 @@
     private string question = "";
     private bool ready;
     private bool busy;
+    private bool scrollNext;
 
     protected override async Task OnInitializedAsync()
     {
@@ -108,10 +133,25 @@
         ready = State.Assistant is not null;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (scrollNext)
+        {
+            scrollNext = false;
+            await Js.InvokeVoidAsync("askScroll");
+        }
+    }
+
     private void Use(string sample)
     {
         question = sample;
         _ = Submit();
+    }
+
+    private void Clear()
+    {
+        turns.Clear();
+        question = "";
     }
 
     private async Task Submit()
@@ -125,13 +165,17 @@
         var asked = question.Trim();
         question = "";
         var answer = await State.Assistant.AskAsync(asked);
-        turns.Insert(0, new Turn { Question = asked, Answer = answer, Open = answer.Citations.FirstOrDefault()?.ChunkId });
+        turns.Add(new Turn { Question = asked, Answer = answer, Open = null });
+        scrollNext = true;
         busy = false;
     }
 
     private static void Toggle(Turn t, string id) => t.Open = t.Open == id ? null : id;
 
     private string FullText(string chunkId) => State.Index?.Find(chunkId)?.Text ?? "";
+
+    // The last heading level is the most telling part; the path above it is shown on hover elsewhere.
+    private static string Short(string heading) => heading.Contains(" > ") ? heading[(heading.LastIndexOf(" > ", StringComparison.Ordinal) + 3)..] : heading;
 
     private static string Css(AnswerStatus s) => s switch
     {
